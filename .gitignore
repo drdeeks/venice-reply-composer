@@ -1,0 +1,10 @@
+projects.json
+project-gits/
+node_modules/
+coverage/
+dist/
+*.tar.gz
+*.zip
+*.log
+.env
+.env*
