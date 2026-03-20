@@ -53,6 +53,76 @@ body {
   gap: 10px;
 }
 
+/* Settings Sections */
+.settings-section {
+  border: 1px solid #dbe3f0;
+  border-radius: 12px;
+  background: #ffffff;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(8, 20, 42, 0.04);
+}
+
+.section-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border: none;
+  background: #f8fafc;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.section-header:hover {
+  background: #f1f5f9;
+}
+
+.section-header.expanded {
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+  flex: 1;
+}
+
+.section-status {
+  font-size: 11px;
+  color: #64748b;
+  padding: 2px 8px;
+  background: #e2e8f0;
+  border-radius: 10px;
+}
+
+.section-chevron {
+  font-size: 10px;
+  color: #94a3b8;
+  transition: transform 0.15s ease;
+}
+
+.section-content {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Info Grid for dashboard view */
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.info-grid .info-card {
+  text-align: center;
+}
+
+/* Status Cards */
 .status-card {
   border-radius: 12px;
   padding: 10px 12px;
@@ -94,6 +164,7 @@ body {
   cursor: pointer;
 }
 
+/* Loading */
 .loading-wrap {
   min-height: 130px;
   display: flex;
@@ -114,6 +185,7 @@ body {
   animation: spin 0.8s linear infinite;
 }
 
+/* Info Cards */
 .info-card {
   border: 1px solid #dbe3f0;
   background: #ffffff;
@@ -146,6 +218,7 @@ body {
   color: #718096;
 }
 
+/* Form Fields */
 .field-wrap {
   display: flex;
   flex-direction: column;
@@ -188,6 +261,13 @@ body {
   color: #334155;
 }
 
+.checkbox-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #2563eb;
+}
+
+/* Buttons */
 .action-btn {
   border: 0;
   border-radius: 10px;
@@ -212,17 +292,27 @@ body {
   color: #f8fafc;
 }
 
+.primary-btn:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
 .secondary-btn {
   background: #2a3444;
   color: #f8fafc;
+}
+
+.secondary-btn:hover:not(:disabled) {
+  background: #3a4454;
 }
 
 .inline-status {
   margin: 0;
   font-size: 12px;
   color: #12613b;
+  text-align: center;
 }
 
+/* Info Banner */
 .info-banner {
   margin-top: 12px;
   border-radius: 11px;
@@ -241,6 +331,7 @@ body {
   margin-top: 3px;
 }
 
+/* Footer */
 .popup-footer {
   margin-top: 10px;
   text-align: center;

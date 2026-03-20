@@ -1,11 +1,19 @@
 export type AIProvider = 'venice' | 'github' | 'auto';
 
 export interface Settings {
+  // AI Providers
   veniceApiKey: string;
   githubToken: string;
   aiProvider: AIProvider;
+  
+  // Bankr
+  bankrApiKey: string;
   bankrUsername: string;
   bankrEnabled: boolean;
+  
+  // Neynar
+  neynarApiKey: string;
+  neynarEnabled: boolean;
 }
 
 export const AI_PROVIDERS = {
@@ -18,6 +26,23 @@ export const AI_PROVIDERS = {
     name: 'GitHub Models',
     baseURL: 'https://models.inference.ai.azure.com',
     model: 'gpt-4o-mini'
+  }
+} as const;
+
+export const BANKR_API = {
+  baseURL: 'https://api.bankr.bot',
+  endpoints: {
+    prompt: '/agent/prompt',
+    job: '/agent/job',
+    balances: '/agent/balances',
+    userInfo: '/agent/user'
+  }
+} as const;
+
+export const NEYNAR_API = {
+  baseURL: 'https://api.neynar.com',
+  endpoints: {
+    trending: '/v2/farcaster/feed/trending/'
   }
 } as const;
 
@@ -45,19 +70,37 @@ function normalizeApiKey(value: unknown): string {
   return normalized;
 }
 
+const SETTINGS_KEYS = [
+  'veniceApiKey',
+  'githubToken',
+  'aiProvider',
+  'bankrApiKey',
+  'bankrUsername',
+  'bankrEnabled',
+  'neynarApiKey',
+  'neynarEnabled'
+] as const;
+
 export async function getSettings(): Promise<Settings | null> {
   try {
-    const settings = await chrome.storage.local.get(['veniceApiKey', 'githubToken', 'aiProvider', 'bankrUsername', 'bankrEnabled']);
-    if (settings.veniceApiKey !== undefined || settings.githubToken !== undefined || settings.bankrUsername !== undefined || settings.bankrEnabled !== undefined) {
-      return {
-        veniceApiKey: normalizeApiKey(settings.veniceApiKey),
-        githubToken: normalizeApiKey(settings.githubToken),
-        aiProvider: (settings.aiProvider as AIProvider) || 'auto',
-        bankrUsername: settings.bankrUsername || '',
-        bankrEnabled: settings.bankrEnabled !== undefined ? settings.bankrEnabled : true
-      };
+    const settings = await chrome.storage.local.get([...SETTINGS_KEYS]);
+    
+    // Check if any settings exist
+    const hasAnySettings = SETTINGS_KEYS.some(key => settings[key] !== undefined);
+    if (!hasAnySettings) {
+      return null;
     }
-    return null;
+    
+    return {
+      veniceApiKey: normalizeApiKey(settings.veniceApiKey),
+      githubToken: normalizeApiKey(settings.githubToken),
+      aiProvider: (settings.aiProvider as AIProvider) || 'auto',
+      bankrApiKey: normalizeApiKey(settings.bankrApiKey),
+      bankrUsername: settings.bankrUsername || '',
+      bankrEnabled: settings.bankrEnabled !== undefined ? settings.bankrEnabled : true,
+      neynarApiKey: normalizeApiKey(settings.neynarApiKey),
+      neynarEnabled: settings.neynarEnabled !== undefined ? settings.neynarEnabled : true
+    };
   } catch (error) {
     console.error('Failed to get settings:', error);
     return null;
@@ -67,9 +110,14 @@ export async function getSettings(): Promise<Settings | null> {
 export async function saveSettings(settings: Settings): Promise<void> {
   try {
     await chrome.storage.local.set({
-      ...settings,
       veniceApiKey: normalizeApiKey(settings.veniceApiKey),
-      githubToken: normalizeApiKey(settings.githubToken)
+      githubToken: normalizeApiKey(settings.githubToken),
+      aiProvider: settings.aiProvider,
+      bankrApiKey: normalizeApiKey(settings.bankrApiKey),
+      bankrUsername: settings.bankrUsername,
+      bankrEnabled: settings.bankrEnabled,
+      neynarApiKey: normalizeApiKey(settings.neynarApiKey),
+      neynarEnabled: settings.neynarEnabled
     });
   } catch (error) {
     console.error('Failed to save settings:', error);
@@ -87,7 +135,6 @@ export interface AIConfig {
 export function getAIConfig(settings: Settings, preferredProvider?: 'venice' | 'github'): AIConfig | null {
   const provider = preferredProvider || (settings.aiProvider === 'auto' ? null : settings.aiProvider);
   
-  // If specific provider requested or set
   if (provider === 'venice' && settings.veniceApiKey) {
     return {
       baseURL: AI_PROVIDERS.venice.baseURL,
