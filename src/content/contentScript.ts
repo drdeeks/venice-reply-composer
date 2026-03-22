@@ -898,6 +898,27 @@ async function executeBankrTrade(post: Post, preDetectedTokens?: string[]) {
   let connectedAddress = '';
   const ethereum = (window as unknown as Record<string, unknown>).ethereum as { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> } | undefined;
 
+  // Helper to update wallet UI
+  async function updateWalletUI(address: string) {
+    connectedAddress = address;
+    const short = address.slice(0, 6) + '...' + address.slice(-4);
+    walletInfo.textContent = `✅ ${short}`;
+    walletInfo.style.color = '#4ade80';
+    connectBtn.textContent = 'Connected';
+    connectBtn.style.background = '#1a3a1a';
+    connectBtn.disabled = true;
+
+    // Fetch balance
+    if (ethereum) {
+      try {
+        const balHex = await ethereum.request({ method: 'eth_getBalance', params: [address, 'latest'] }) as string;
+        const balEth = parseInt(balHex, 16) / 1e18;
+        walletBalance.textContent = `${balEth.toFixed(4)} ETH`;
+        walletBalance.style.display = 'inline';
+      } catch { /* balance fetch optional */ }
+    }
+  }
+
   connectBtn.onclick = async () => {
     if (!ethereum) {
       walletInfo.textContent = '❌ No wallet found';
@@ -908,21 +929,11 @@ async function executeBankrTrade(post: Post, preDetectedTokens?: string[]) {
       connectBtn.textContent = '...';
       const accounts = await ethereum.request({ method: 'eth_requestAccounts' }) as string[];
       if (accounts?.length > 0) {
-        connectedAddress = accounts[0];
-        const short = connectedAddress.slice(0, 6) + '...' + connectedAddress.slice(-4);
-        walletInfo.textContent = `✅ ${short}`;
-        walletInfo.style.color = '#4ade80';
-        connectBtn.textContent = 'Connected';
-        connectBtn.style.background = '#1a3a1a';
-        connectBtn.disabled = true;
-
-        // Fetch balance
+        await updateWalletUI(accounts[0]);
+        // Save to storage for cross-context sharing
         try {
-          const balHex = await ethereum.request({ method: 'eth_getBalance', params: [connectedAddress, 'latest'] }) as string;
-          const balEth = parseInt(balHex, 16) / 1e18;
-          walletBalance.textContent = `${balEth.toFixed(4)} ETH`;
-          walletBalance.style.display = 'inline';
-        } catch { /* balance fetch optional */ }
+          await chrome.storage.local.set({ connectedWalletAddress: accounts[0] });
+        } catch { /* storage save optional */ }
       }
     } catch (err) {
       walletInfo.textContent = '❌ Connection rejected';
@@ -931,30 +942,31 @@ async function executeBankrTrade(post: Post, preDetectedTokens?: string[]) {
     }
   };
 
-  // Auto-connect if already authorized
-  if (ethereum) {
-    ethereum.request({ method: 'eth_accounts' }).then((accounts) => {
-      const accts = accounts as string[];
-      if (accts?.length > 0) {
-        connectedAddress = accts[0];
-        const short = connectedAddress.slice(0, 6) + '...' + connectedAddress.slice(-4);
-        walletInfo.textContent = `✅ ${short}`;
-        walletInfo.style.color = '#4ade80';
-        connectBtn.textContent = 'Connected';
-        connectBtn.style.background = '#1a3a1a';
-        connectBtn.disabled = true;
-        ethereum.request({ method: 'eth_getBalance', params: [connectedAddress, 'latest'] }).then((balHex) => {
-          const balEth = parseInt(balHex as string, 16) / 1e18;
-          walletBalance.textContent = `${balEth.toFixed(4)} ETH`;
-          walletBalance.style.display = 'inline';
-        }).catch(() => {});
+  // Auto-connect: check storage first (from popup), then eth_accounts
+  (async () => {
+    try {
+      // Try storage first (connected via popup)
+      const stored = await chrome.storage.local.get(['connectedWalletAddress']);
+      if (stored.connectedWalletAddress) {
+        await updateWalletUI(stored.connectedWalletAddress);
+        return;
       }
-    }).catch(() => {});
-  } else {
-    connectBtn.textContent = 'No Wallet';
-    connectBtn.disabled = true;
-    connectBtn.style.background = '#333';
-  }
+    } catch { /* storage read failed, continue to eth_accounts */ }
+
+    // Fallback: check if wallet already authorized via eth_accounts
+    if (ethereum) {
+      try {
+        const accounts = await ethereum.request({ method: 'eth_accounts' }) as string[];
+        if (accounts?.length > 0) {
+          await updateWalletUI(accounts[0]);
+        }
+      } catch { /* eth_accounts failed */ }
+    } else {
+      connectBtn.textContent = 'No Wallet';
+      connectBtn.disabled = true;
+      connectBtn.style.background = '#333';
+    }
+  })();
 
   walletStatus.appendChild(walletInfo);
   walletStatus.appendChild(walletBalance);
