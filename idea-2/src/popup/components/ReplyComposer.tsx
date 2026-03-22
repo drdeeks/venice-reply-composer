@@ -50,8 +50,10 @@ export default function ReplyComposer({ apiKey }: { apiKey: string }) {
         temperature: 0.7,
       })
 
-      const suggestions = response.choices?.[0]?.message?.content ?? ''
+      const content = response.choices?.[0]?.message?.content ?? '';
+      const suggestions = content
         .split('\n\n')
+        .filter(s => s.trim().length > 0)
         .slice(0, 5)
         .map((text, index) => ({
           id: `suggestion-${index}`,
@@ -59,9 +61,9 @@ export default function ReplyComposer({ apiKey }: { apiKey: string }) {
           confidence: Math.random() * 0.3 + 0.7,
           tokens: text.split(' ').length,
           bankrTokens: getRelevantTokens(text),
-        }))
+        }));
 
-      setSuggestions(typeof suggestions === 'string' ? [] : suggestions)
+      setSuggestions(suggestions);
     } catch (error) {
       console.error('Error getting suggestions:', error)
       alert('Error generating suggestions. Please check your API key.')
