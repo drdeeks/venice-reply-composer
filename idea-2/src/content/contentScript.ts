@@ -44,6 +44,11 @@ function normalizeApiKey(value: unknown): string {
     normalized = assignmentMatch[1].trim();
   }
 
+  // Keys starting with VENICE_INFERENCE_KEY_ are valid as-is
+  if (/^VENICE_INFERENCE_KEY_/i.test(normalized)) {
+    return normalized;
+  }
+
   normalized = normalized.replace(/^Bearer\s+/i, '').trim();
 
   if (

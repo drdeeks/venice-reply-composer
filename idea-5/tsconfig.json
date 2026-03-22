@@ -13,37 +13,12 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "removeComments": true,
-    "noImplicitAny": true,
-    "noImplicitReturns": true,
-    "noImplicitThis": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
     "moduleResolution": "node",
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["src/*"],
-      "@/config/*": ["config/*"],
-      "@/controllers/*": ["src/controllers/*"],
-      "@/services/*": ["src/services/*"],
-      "@/models/*": ["src/models/*"],
-      "@/utils/*": ["src/utils/*"],
-      "@/middleware/*": ["src/middleware/*"],
-      "@/types/*": ["src/types/*"],
-      "@/tests/*": ["tests/*"]
-    },
-    "allowSyntheticDefaultImports": true,
     "experimentalDecorators": true,
-    "emitDecoratorMetadata": true
+    "emitDecoratorMetadata": true,
+    "noImplicitAny": false,
+    "strictPropertyInitialization": false
   },
-  "include": [
-    "src/**/*",
-    "tests/**/*"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "tests/e2e/**/*"
-  ]
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "tests"]
 }

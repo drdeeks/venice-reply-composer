@@ -1,102 +1,311 @@
-import rateLimit, { Options as RateLimitOptions } from 'express-rate-limit';
+import rateLimit, { RateLimitRequestHandler } from 'express-rate-limit';
 import { Request, Response, NextFunction } from 'express';
+import { logger } from '../utils/logger';
+import { ErrorCodes, ErrorCategory, ErrorSeverity } from '../utils/errors';
 
-// Configurable rate limits based on environment
-const getRateLimitConfig = () => {
-  const isProduction = process.env.NODE_ENV === 'production';
-  
+/**
+ * Enterprise Rate Limiting Middleware
+ * Follows security_measures.json
+ * - Tiered rate limits
+ * - Endpoint-specific limits
+ * - IP-based and user-based limiting
+ * - Structured error responses
+ */
+
+// Rate limit response format
+interface RateLimitResponse {
+  error: {
+    code: string;
+    message: string;
+    timestamp: string;
+    statusCode: number;
+    category: string;
+    severity: string;
+    retryable: boolean;
+    retryAfter: number;
+    userActions: string[];
+  };
+}
+
+// Create structured rate limit response
+function createRateLimitResponse(retryAfterSeconds: number): RateLimitResponse {
   return {
-    // General API rate limiting
-    windowMs: isProduction ? 60 * 60 * 1000 : 60 * 1000, // 1 hour in production, 1 minute in dev
-    max: isProduction ? 1000 : 100, // max requests per window
-    standardHeaders: true, // Return RateLimit-* headers
-    legacyHeaders: false, // Disable X-RateLimit-* headers
-    message: { error: 'Too many requests, please try again later.' },
-    statusCode: 429,
-    // Skip rate limiting for health checks
-    skip: (req: Request) => {
-      return req.path.startsWith('/health') || req.path.startsWith('/api/webhooks');
+    error: {
+      code: ErrorCodes.RATE_LIMIT_EXCEEDED,
+      message: 'Too many requests, please try again later',
+      timestamp: new Date().toISOString(),
+      statusCode: 429,
+      category: ErrorCategory.RATE_LIMIT,
+      severity: ErrorSeverity.LOW,
+      retryable: true,
+      retryAfter: retryAfterSeconds,
+      userActions: [`Wait ${retryAfterSeconds} seconds before retrying`],
     },
-    // Handler to log rate limit hits
-    handler: (req: Request, res: Response, next: NextFunction, options?: RateLimitOptions) => {
-      const log = require('../utils/logger').logger;
-      log.warn('Rate limit exceeded', {
-        ip: req.ip,
-        path: req.originalUrl,
-        method: req.method,
-      });
-      res.status(options?.statusCode || 429).json({
-        error: 'Too many requests, please try again later.',
-        retryAfter: Math.round((options?.windowMs || 60000) / 1000),
-      });
-    },
-  } as RateLimitOptions;
-};
+  };
+}
 
-// More restrictive rate limit for sensitive endpoints
-const sensitiveLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 10, // Limit each IP to 10 requests per windowMs
-  message: { error: 'Too many attempts, please try again after an hour.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+// Rate limit handler
+function createRateLimitHandler(limitType: string) {
+  return (req: Request, res: Response): void => {
+    const retryAfter = Math.ceil((res.getHeader('Retry-After') as number) || 60);
 
-// Rate limit for transaction creation (protect against spam)
-const transactionLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 5, // Limit each IP to 5 transaction attempts per minute
-  skipSuccessfulRequests: true,
-  keyGenerator: (req: Request) => {
-    // Rate limit by email if provided, fall back to IP
-    return req.body?.recipientEmail || req.ip;
-  },
-  message: { error: 'Too many transaction attempts, please slow down.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+    logger.warn('Rate limit exceeded', {
+      type: limitType,
+      ip: req.ip || req.socket?.remoteAddress,
+      path: req.originalUrl,
+      method: req.method,
+      retryAfter,
+      userAgent: req.headers['user-agent']?.substring(0, 100),
+    });
 
-export const rateLimiter = (req: Request, res: Response, next: NextFunction) => {
-  // Apply general rate limiting
-  const generalLimiter = rateLimit(getRateLimitConfig());
-  return generalLimiter(req, res, (error?: any) => {
-    if (error) {
-      return res.status(429).json({
-        error: 'Rate limit exceeded',
-        retryAfter: Math.round(getRateLimitConfig().windowMs / 1000),
-      });
+    res.status(429).json(createRateLimitResponse(retryAfter));
+  };
+}
+
+// Key generator that combines IP and user ID
+function createKeyGenerator(includeUserId = false) {
+  return (req: Request): string => {
+    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+    if (includeUserId) {
+      const userId = (req as Record<string, unknown>).user?.['userId'] as string | undefined;
+      return userId ? `${ip}:${userId}` : ip;
     }
-    next();
-  });
+    return ip;
+  };
+}
+
+// Skip function for health and metrics endpoints
+const skipHealthEndpoints = (req: Request): boolean => {
+  const skipPaths = ['/health', '/health/live', '/health/ready', '/metrics'];
+  return skipPaths.some(path => req.path.startsWith(path));
 };
 
-export const sensitiveRateLimiter = rateLimit({
-  ...getRateLimitConfig(),
-  max: 10,
-  windowMs: 60 * 60 * 1000,
+// General API rate limiter
+export const rateLimiter: RateLimitRequestHandler = rateLimit({
+  windowMs: process.env.NODE_ENV === 'production' ? 60 * 60 * 1000 : 60 * 1000, // 1 hour prod, 1 min dev
+  limit: process.env.NODE_ENV === 'production' ? 1000 : 200,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skip: (req) => skipHealthEndpoints(req) || req.path.startsWith('/api/webhooks'),
+  keyGenerator: createKeyGenerator(false),
+  handler: createRateLimitHandler('general'),
 });
 
-export const verifyEmailLimiter = (req: Request, res: Response, next: NextFunction) => {
-  const limiter = rateLimit({
-    windowMs: 60 * 60 * 1000,
-    max: 5,
-    keyGenerator: (req: Request) => req.body?.email || req.ip,
-    message: { error: 'Too many verification attempts for this email.' },
-    standardHeaders: true,
-    legacyHeaders: false,
-  });
-  return limiter(req, res, next);
-};
+// Strict rate limiter for sensitive endpoints
+export const sensitiveLimiter: RateLimitRequestHandler = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  limit: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: createKeyGenerator(true),
+  handler: createRateLimitHandler('sensitive'),
+});
 
-export const webhookLimiter = (req: Request, res: Response, next: NextFunction) => {
-  // Webhooks are verified separately but we still limit based on secret
-  const limiter = rateLimit({
-    windowMs: 60 * 1000,
-    max: 100,
-    standardHeaders: true,
-    legacyHeaders: false,
-  });
-  return limiter(req, res, next);
-};
+// Transaction creation rate limiter
+export const transactionLimiter: RateLimitRequestHandler = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  limit: 5,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skipSuccessfulRequests: false,
+  keyGenerator: (req: Request): string => {
+    // Rate limit by sender email or IP
+    const senderEmail = req.body?.senderEmail as string | undefined;
+    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+    return senderEmail ? `tx:${senderEmail.toLowerCase()}` : `tx:${ip}`;
+  },
+  handler: createRateLimitHandler('transaction'),
+});
 
-export { sensitiveLimiter, transactionLimiter };
+// Email verification rate limiter
+export const verifyEmailLimiter: RateLimitRequestHandler = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  limit: 5,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: (req: Request): string => {
+    const email = req.body?.email as string | undefined;
+    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+    return email ? `verify:${email.toLowerCase()}` : `verify:${ip}`;
+  },
+  handler: createRateLimitHandler('email-verification'),
+});
+
+// Webhook rate limiter (higher limits for trusted sources)
+export const webhookLimiter: RateLimitRequestHandler = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  limit: 200,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: (req: Request): string => {
+    // Use webhook signature or source identifier if available
+    const webhookId = req.headers['x-webhook-id'] as string | undefined;
+    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+    return webhookId ? `webhook:${webhookId}` : `webhook:${ip}`;
+  },
+  handler: createRateLimitHandler('webhook'),
+});
+
+// Login/Auth rate limiter - very strict
+export const authLimiter: RateLimitRequestHandler = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  limit: 5,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  keyGenerator: (req: Request): string => {
+    const email = req.body?.email as string | undefined;
+    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+    return email ? `auth:${email.toLowerCase()}` : `auth:${ip}`;
+  },
+  handler: (req: Request, res: Response): void => {
+    const retryAfter = Math.ceil((res.getHeader('Retry-After') as number) || 900);
+
+    logger.warn('Auth rate limit exceeded - possible brute force attempt', {
+      ip: req.ip || req.socket?.remoteAddress,
+      email: req.body?.email?.substring(0, 3) + '***',
+      retryAfter,
+    });
+
+    res.status(429).json({
+      error: {
+        code: ErrorCodes.RATE_LIMIT_EXCEEDED,
+        message: 'Too many authentication attempts',
+        timestamp: new Date().toISOString(),
+        statusCode: 429,
+        category: ErrorCategory.RATE_LIMIT,
+        severity: ErrorSeverity.MEDIUM,
+        retryable: true,
+        retryAfter,
+        userActions: [
+          'Wait 15 minutes before trying again',
+          'Reset your password if you forgot it',
+          'Contact support if you believe this is an error',
+        ],
+      },
+    });
+  },
+});
+
+// Burst protection - very short window, low limit
+export const burstLimiter: RateLimitRequestHandler = rateLimit({
+  windowMs: 1000, // 1 second
+  limit: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skip: skipHealthEndpoints,
+  keyGenerator: createKeyGenerator(false),
+  handler: (req: Request, res: Response): void => {
+    logger.warn('Burst rate limit exceeded - possible DoS attempt', {
+      ip: req.ip || req.socket?.remoteAddress,
+      path: req.originalUrl,
+    });
+
+    res.status(429).json(createRateLimitResponse(1));
+  },
+});
+
+// Claim endpoint rate limiter
+export const claimLimiter: RateLimitRequestHandler = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  limit: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: (req: Request): string => {
+    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+    const transactionId = req.params?.id;
+    return transactionId ? `claim:${transactionId}` : `claim:${ip}`;
+  },
+  handler: createRateLimitHandler('claim'),
+});
+
+// Transfer endpoint rate limiter - strict for financial operations
+export const transferLimiter: RateLimitRequestHandler = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  limit: 3,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: createKeyGenerator(true),
+  handler: (req: Request, res: Response): void => {
+    const retryAfter = Math.ceil((res.getHeader('Retry-After') as number) || 60);
+
+    logger.warn('Transfer rate limit exceeded', {
+      ip: req.ip || req.socket?.remoteAddress,
+      userId: (req as Record<string, unknown>).user?.['userId'],
+      retryAfter,
+    });
+
+    res.status(429).json({
+      error: {
+        code: ErrorCodes.RATE_LIMIT_TRANSACTION,
+        message: 'Too many transfer requests',
+        timestamp: new Date().toISOString(),
+        statusCode: 429,
+        category: ErrorCategory.RATE_LIMIT,
+        severity: ErrorSeverity.MEDIUM,
+        retryable: true,
+        retryAfter,
+        userActions: [
+          `Wait ${retryAfter} seconds before initiating another transfer`,
+          'Contact support for increased limits',
+        ],
+      },
+    });
+  },
+});
+
+// Dynamic rate limiter that can be adjusted at runtime
+export class DynamicRateLimiter {
+  private currentLimit: number;
+  private windowMs: number;
+  private limiter: RateLimitRequestHandler;
+
+  constructor(initialLimit: number, windowMs: number, name: string) {
+    this.currentLimit = initialLimit;
+    this.windowMs = windowMs;
+    this.limiter = this.createLimiter(name);
+  }
+
+  private createLimiter(name: string): RateLimitRequestHandler {
+    return rateLimit({
+      windowMs: this.windowMs,
+      limit: this.currentLimit,
+      standardHeaders: 'draft-7',
+      legacyHeaders: false,
+      keyGenerator: createKeyGenerator(false),
+      handler: createRateLimitHandler(name),
+    });
+  }
+
+  getMiddleware(): (req: Request, res: Response, next: NextFunction) => void {
+    return (req: Request, res: Response, next: NextFunction) => {
+      this.limiter(req, res, next);
+    };
+  }
+
+  setLimit(newLimit: number): void {
+    this.currentLimit = newLimit;
+    logger.info('Rate limit adjusted', { newLimit });
+  }
+
+  getLimit(): number {
+    return this.currentLimit;
+  }
+}
+
+// Export default combined middleware
+export default function applyRateLimiting(app: { use: (path: string | unknown, ...handlers: unknown[]) => void }): void {
+  // Apply burst protection globally
+  app.use(burstLimiter);
+
+  // Apply general rate limiting
+  app.use(rateLimiter);
+
+  // Apply specific limiters to routes
+  app.use('/api/transactions', transactionLimiter);
+  app.use('/api/transactions/:id/claim', claimLimiter);
+  app.use('/api/celo/transfer', transferLimiter);
+  app.use('/api/verifications', verifyEmailLimiter);
+  app.use('/api/webhooks', webhookLimiter);
+  app.use('/api/auth', authLimiter);
+}

@@ -1,5 +1,6 @@
-import { ContributionScore, ContributorMetrics, ContributionAnalysis } from '@/types';
-import { logger } from '@/utils/logger';
+import { ContributionScore, ContributorMetrics, ContributionAnalysis, SlicePaymentConfig, TalentProtocolCredential } from '../types';
+import { logger } from '../utils/logger';
+import * as crypto from 'crypto';
 
 export class ContributionEngine {
   private config: {
@@ -182,9 +183,19 @@ export class ContributionEngine {
     const maxScore = this.config.normalization.maxScore;
 
     if (scores.length === 0) return scores;
+    
+    // Handle single contributor case
+    if (scores.length === 1) {
+      return scores.map(score => ({ ...score, score: maxScore }));
+    }
 
     const maxRawScore = Math.max(...scores.map(s => s.score));
     const minRawScore = Math.min(...scores.map(s => s.score));
+    
+    // Handle case where all scores are equal
+    if (maxRawScore === minRawScore) {
+      return scores.map(score => ({ ...score, score: (minScore + maxScore) / 2 }));
+    }
 
     return scores.map(score => {
       const normalized = ((score.score - minRawScore) / (maxRawScore - minRawScore)) * (maxScore - minScore) + minScore;
@@ -332,7 +343,7 @@ export class ContributionEngine {
   }
 
   private generateMockAddress(contributor: string): string {
-    const hash = require('crypto')
+    const hash = crypto
       .createHash('sha256')
       .update(contributor)
       .digest('hex');
@@ -340,14 +351,14 @@ export class ContributionEngine {
   }
 
   private hashContribution(analysis: ContributionAnalysis): string {
-    return require('crypto')
+    return crypto
       .createHash('sha256')
       .update(JSON.stringify(analysis))
       .digest('hex');
   }
 
   private hashScore(score: ContributionScore): string {
-    return require('crypto')
+    return crypto
       .createHash('sha256')
       .update(JSON.stringify(score))
       .digest('hex');
@@ -355,7 +366,7 @@ export class ContributionEngine {
 
   private signCredential(contributor: string, score: number): string {
     // Simplified signing - in production would use actual cryptographic signing
-    return require('crypto')
+    return crypto
       .createHmac('sha256', 'secret-key')
       .update(`${contributor}:${score}`)
       .digest('hex');

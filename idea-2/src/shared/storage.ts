@@ -12,9 +12,15 @@ function normalizeApiKey(value: unknown): string {
   let normalized = value.trim();
   if (!normalized) return '';
 
+  // Handle VENICE_INFERENCE_KEY=value (env var assignment)
   const assignmentMatch = normalized.match(/(?:VENICE_INFERENCE_KEY|VENICE_API_KEY)\s*=\s*(.+)$/i);
   if (assignmentMatch) {
     normalized = assignmentMatch[1].trim();
+  }
+
+  // Keys starting with VENICE_INFERENCE_KEY_ are valid as-is
+  if (/^VENICE_INFERENCE_KEY_/i.test(normalized)) {
+    return normalized;
   }
 
   normalized = normalized.replace(/^Bearer\s+/i, '').trim();
@@ -32,7 +38,7 @@ function normalizeApiKey(value: unknown): string {
 
 export async function getSettings(): Promise<Settings | null> {
   try {
-    const settings = await chrome.storage.local.get(['veniceApiKey', 'bankrUsername', 'bankrEnabled']);
+    const settings = await chrome.storage.local.get(['veniceApiKey', 'bankrUsername', 'bankrEnabled', 'bankrApiKey', 'githubToken']);
     if (settings.veniceApiKey !== undefined || settings.bankrUsername !== undefined || settings.bankrEnabled !== undefined) {
       return {
         veniceApiKey: normalizeApiKey(settings.veniceApiKey),
@@ -53,7 +59,9 @@ export async function saveSettings(settings: Settings): Promise<void> {
   try {
     await chrome.storage.local.set({
       ...settings,
-      veniceApiKey: normalizeApiKey(settings.veniceApiKey)
+      veniceApiKey: normalizeApiKey(settings.veniceApiKey),
+      bankrApiKey: normalizeApiKey(settings.bankrApiKey),
+      githubToken: normalizeApiKey(settings.githubToken)
     });
   } catch (error) {
     console.error('Failed to save settings:', error);

@@ -37,6 +37,8 @@ describe('Storage Module', () => {
         veniceApiKey: 'vapi_test123',
         bankrUsername: '@user',
         bankrEnabled: true,
+        bankrApiKey: '',
+        githubToken: '',
       });
     });
 

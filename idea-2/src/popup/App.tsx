@@ -16,9 +16,16 @@ function normalizeApiKeyInput(rawValue: string): string {
   let normalized = rawValue.trim();
   if (!normalized) return '';
 
+  // Handle VENICE_INFERENCE_KEY=value (env var assignment)
   const assignmentMatch = normalized.match(/(?:VENICE_INFERENCE_KEY|VENICE_API_KEY)\s*=\s*(.+)$/i);
   if (assignmentMatch) {
     normalized = assignmentMatch[1].trim();
+  }
+
+  // Handle VENICE_INFERENCE_KEY_xxxxx format (the key IS the full string — pass as-is)
+  // Venice keys starting with this prefix are valid API keys themselves
+  if (/^VENICE_INFERENCE_KEY_/i.test(normalized)) {
+    return normalized;
   }
 
   normalized = normalized.replace(/^Bearer\s+/i, '').trim();
@@ -262,6 +269,32 @@ export function App() {
               disabled={loading}
             />
             <p className="field-help">Accepted: raw key (`vapi_...`), `VENICE_INFERENCE_KEY=...`, or `Bearer ...`.</p>
+          </div>
+
+          <div className="field-wrap">
+            <label className="field-label">Bankr API Key (Fallback AI + Trading)</label>
+            <input
+              type="password"
+              className="field-input"
+              value={settings.bankrApiKey}
+              onChange={e => setSettings({ ...settings, bankrApiKey: e.target.value })}
+              placeholder="Bankr API key for LLM Gateway + trading"
+              disabled={loading}
+            />
+            <p className="field-help">Powers Bankr LLM Gateway (AI fallback) and direct trade execution.</p>
+          </div>
+
+          <div className="field-wrap">
+            <label className="field-label">GitHub Token (Free AI Fallback)</label>
+            <input
+              type="password"
+              className="field-input"
+              value={settings.githubToken}
+              onChange={e => setSettings({ ...settings, githubToken: e.target.value })}
+              placeholder="GitHub personal access token"
+              disabled={loading}
+            />
+            <p className="field-help">Uses GitHub Models (gpt-4o-mini) as free third fallback.</p>
           </div>
 
           <div className="field-wrap">

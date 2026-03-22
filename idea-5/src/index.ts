@@ -2,16 +2,15 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
-import { createConnection } from 'typeorm';
 import { errorHandler } from './middleware/errorHandler';
 import { rateLimiter } from './middleware/rateLimiter';
-import { authMiddleware } from './middleware/auth';
 import { transactionRoutes } from './controllers/transactionController';
 import { verificationRoutes } from './controllers/verificationController';
 import { webhookRoutes } from './controllers/webhookController';
 import { emailRoutes } from './controllers/emailController';
 import { celoRoutes } from './controllers/celoController';
 import { healthRoutes } from './controllers/healthController';
+import { logger } from './utils/logger';
 
 // Load environment variables
 dotenv.config();
@@ -65,29 +64,6 @@ app.use('/api/webhooks', webhookRoutes);
 app.use('/api/emails', emailRoutes);
 app.use('/api/celo', celoRoutes);
 
-// Protected routes
-app.use('/api/protected', authMiddleware, (req, res, next) => {
-  // All routes under /api/protected require authentication
-  next();
-});
-
-// Initialize database connection
-createConnection({
-  type: 'postgres',
-  url: process.env.DATABASE_URL,
-  entities: [__dirname + '/../**/*.entity{.ts,.js}'],
-  synchronize: process.env.NODE_ENV === 'development',
-  logging: process.env.NODE_ENV === 'development' ? 'all' : false,
-  extra: {
-    ssl: process.env.NODE_ENV === 'production',
-  },
-}).then(() => {
-  console.log('Database connection established');
-}).catch((error) => {
-  console.error('Database connection error:', error);
-  process.exit(1);
-});
-
 // Error handling middleware (must be last)
 app.use(errorHandler);
 
@@ -98,19 +74,19 @@ app.use('*', (req, res) => {
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully');
+  logger.info('SIGTERM received, shutting down gracefully');
   process.exit(0);
 });
 
 process.on('SIGINT', () => {
-  console.log('SIGINT received, shutting down gracefully');
+  logger.info('SIGINT received, shutting down gracefully');
   process.exit(0);
 });
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`Email-Crypto Remittance API running on port ${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  logger.info(`Email-Crypto Remittance API running on port ${PORT}`);
+  logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 
 export default app;
