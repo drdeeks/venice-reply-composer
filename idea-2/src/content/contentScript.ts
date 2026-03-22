@@ -95,18 +95,24 @@ async function getSettingsFromBackground(): Promise<Settings | null> {
 }
 
 async function getSettingsFromStorage(): Promise<Settings | null> {
+  // Content scripts must always fetch settings via background service worker.
+  // Direct chrome.storage.local access is unreliable in content script context
+  // and throws "Cannot read properties of undefined (reading 'local')" on some sites.
   const fromBackground = await getSettingsFromBackground();
   if (fromBackground) {
     return fromBackground;
   }
 
+  // Safe fallback: only attempt direct storage if chrome.storage is actually available
   try {
-    const raw = await chrome.storage.local.get(['veniceApiKey', 'bankrUsername', 'bankrEnabled', 'bankrApiKey', 'githubToken']);
-    return toSettings(raw);
-  } catch (error) {
-    console.warn('Venice Reply Composer: Failed to get settings in content script context.', error);
-    return null;
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      const raw = await chrome.storage.local.get(['veniceApiKey', 'bankrUsername', 'bankrEnabled', 'bankrApiKey', 'githubToken']);
+      return toSettings(raw);
+    }
+  } catch {
+    // Silently fail — storage unavailable in this context
   }
+  return null;
 }
 
 export async function contentScript() {
