@@ -1,9 +1,20 @@
+interface ResponseTypeSettings {
+  agreeReply: boolean;
+  againstReply: boolean;
+  forQuote: boolean;
+  againstQuote: boolean;
+}
+
 interface Settings {
   veniceApiKey: string;
   bankrUsername: string;
   bankrEnabled: boolean;
   bankrApiKey: string;
   githubToken: string;
+  responseTypes: ResponseTypeSettings;
+  veniceModel?: string;
+  bankrModel?: string;
+  githubModel?: string;
 }
 
 type Platform = 'farcaster' | 'twitter' | 'reddit';
@@ -94,12 +105,23 @@ function toSettings(raw: unknown): Settings | null {
     return null;
   }
 
+  const defaultResponseTypes: ResponseTypeSettings = {
+    agreeReply: true,
+    againstReply: true,
+    forQuote: false,
+    againstQuote: false
+  };
+
   return {
     veniceApiKey: normalizeApiKey(settings.veniceApiKey),
     bankrUsername: typeof settings.bankrUsername === 'string' ? settings.bankrUsername : '',
     bankrEnabled: typeof settings.bankrEnabled === 'boolean' ? settings.bankrEnabled : true,
     bankrApiKey: normalizeApiKey(settings.bankrApiKey),
-    githubToken: normalizeApiKey(settings.githubToken)
+    githubToken: normalizeApiKey(settings.githubToken),
+    responseTypes: settings.responseTypes || defaultResponseTypes,
+    veniceModel: settings.veniceModel,
+    bankrModel: settings.bankrModel,
+    githubModel: settings.githubModel
   };
 }
 
@@ -164,11 +186,16 @@ export async function contentScript() {
   scanAndDecorate(document.body, platform);
 
   if (platform === 'farcaster') {
-    window.setTimeout(() => {
-      if (decoratedPostCount === 0) {
-        ensureFarcasterFallbackLauncher();
-      }
-    }, 1400);
+    // SPA retry: farcaster.xyz loads content lazily — scan multiple times
+    const retryDelays = [800, 1400, 2500, 4000, 6000];
+    retryDelays.forEach(delay => {
+      window.setTimeout(() => {
+        scanAndDecorate(document.body, platform);
+        if (decoratedPostCount === 0) {
+          ensureFarcasterFallbackLauncher();
+        }
+      }, delay);
+    });
   }
 
   observePosts(platform);
@@ -246,7 +273,8 @@ function extractPosts(container: HTMLElement, platform: Platform, allowFarcaster
     }
 
     const content = getPostContent(element, platform);
-    if (!content || content.length < 20) {
+    const minLength = platform === 'farcaster' ? 5 : 20;
+    if (!content || content.length < minLength) {
       return;
     }
 
@@ -615,7 +643,7 @@ function getProviderChain(settings: Settings): AIProvider[] {
     providers.push({
       name: 'Venice',
       url: 'https://api.venice.ai/api/v1/chat/completions',
-      model: 'venice-uncensored',
+      model: settings.veniceModel || 'venice-uncensored',
       authHeader: (k) => ({ Authorization: `Bearer ${k}` }),
       key: settings.veniceApiKey.trim()
     });
@@ -626,7 +654,7 @@ function getProviderChain(settings: Settings): AIProvider[] {
     providers.push({
       name: 'Bankr',
       url: 'https://llm.bankr.bot/v1/chat/completions',
-      model: 'gemini-2.5-flash',
+      model: settings.bankrModel || 'gemini-2.5-flash',
       authHeader: (k) => ({ 'X-API-Key': k }),
       key: settings.bankrApiKey.trim()
     });
@@ -637,7 +665,7 @@ function getProviderChain(settings: Settings): AIProvider[] {
     providers.push({
       name: 'GitHub',
       url: 'https://models.inference.ai.azure.com/chat/completions',
-      model: 'gpt-4o-mini',
+      model: settings.githubModel || 'gpt-4o-mini',
       authHeader: (k) => ({ Authorization: `Bearer ${k}` }),
       key: settings.githubToken.trim()
     });
@@ -646,7 +674,24 @@ function getProviderChain(settings: Settings): AIProvider[] {
   return providers;
 }
 
-async function callAIProvider(provider: AIProvider, content: string): Promise<string> {
+async function callAIProvider(provider: AIProvider, content: string, responseTypes?: ResponseTypeSettings): Promise<string> {
+  // Build system prompt based on enabled response types
+  let systemPrompt = 'You generate concise, high-quality social replies. ';
+  
+  if (responseTypes) {
+    const enabledTypes: string[] = [];
+    if (responseTypes.agreeReply) enabledTypes.push('agreeable/supportive replies');
+    if (responseTypes.againstReply) enabledTypes.push('counterpoint/critical replies');
+    if (responseTypes.forQuote) enabledTypes.push('quote tweets agreeing');
+    if (responseTypes.againstQuote) enabledTypes.push('quote tweets disagreeing');
+    
+    if (enabledTypes.length > 0) {
+      systemPrompt += `Generate these types: ${enabledTypes.join(', ')}. `;
+    }
+  }
+  
+  systemPrompt += 'Return 5 unique replies, each under 280 characters.';
+
   const response = await fetch(provider.url, {
     method: 'POST',
     headers: {
@@ -658,7 +703,7 @@ async function callAIProvider(provider: AIProvider, content: string): Promise<st
       messages: [
         {
           role: 'system',
-          content: 'You generate concise, high-quality social replies. Return 5 unique replies, each under 280 characters.'
+          content: systemPrompt
         },
         { role: 'user', content }
       ],
@@ -681,7 +726,22 @@ async function callAIProvider(provider: AIProvider, content: string): Promise<st
 }
 
 async function getReplySuggestions(content: string, apiKey: string): Promise<ReplySuggestion[]> {
-  const settings = cachedSettings || { veniceApiKey: apiKey, bankrUsername: '', bankrEnabled: true, bankrApiKey: '', githubToken: '' };
+  const defaultResponseTypes: ResponseTypeSettings = {
+    agreeReply: true,
+    againstReply: true,
+    forQuote: false,
+    againstQuote: false
+  };
+  
+  const settings = cachedSettings || { 
+    veniceApiKey: apiKey, 
+    bankrUsername: '', 
+    bankrEnabled: true, 
+    bankrApiKey: '', 
+    githubToken: '',
+    responseTypes: defaultResponseTypes
+  };
+  
   const providers = getProviderChain(settings);
 
   if (providers.length === 0) {
@@ -692,7 +752,7 @@ async function getReplySuggestions(content: string, apiKey: string): Promise<Rep
   for (const provider of providers) {
     try {
       console.log(`Venice Reply Composer: trying ${provider.name}...`);
-      const rawContent = await callAIProvider(provider, content);
+      const rawContent = await callAIProvider(provider, content, settings.responseTypes);
 
       const unique = new Set<string>();
       rawContent
