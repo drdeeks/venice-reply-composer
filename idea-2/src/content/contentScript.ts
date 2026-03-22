@@ -184,7 +184,10 @@ function observePosts(platform: Platform) {
           if (platform === 'farcaster') {
             if (decoratedPostCount === 0) {
               ensureFarcasterFallbackLauncher();
-            } else {
+            }
+            // Only remove fallback once we've successfully decorated at least 2 posts
+            // prevents flash-and-disappear on SPA load where observer fires immediately
+            if (decoratedPostCount >= 2) {
               removeFarcasterFallbackLauncher();
             }
           }
@@ -379,7 +382,8 @@ function addReplyButtons(post: Post) {
   post.element.appendChild(container);
 
   decoratedPostCount += 1;
-  if (post.platform === 'farcaster' && decoratedPostCount > 0) {
+  // Only remove fallback after decorating 2+ posts — prevents flash-and-disappear
+  if (post.platform === 'farcaster' && decoratedPostCount >= 2) {
     removeFarcasterFallbackLauncher();
   }
 }
