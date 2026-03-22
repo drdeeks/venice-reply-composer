@@ -140,14 +140,20 @@ export async function contentScript() {
 }
 
 function detectPlatform(): Platform | null {
+  const host = window.location.hostname.toLowerCase();
+  // Farcaster: warpcast.com now redirects to farcaster.xyz
   if (
-    window.location.hostname.includes('farcaster')
-    || window.location.hostname.includes('warpcast')
+    host.includes('farcaster')
+    || host.includes('warpcast')
+    || host === 'farcaster.xyz'
+    || host.endsWith('.farcaster.xyz')
+    || host === 'farcaster.com'
+    || host.endsWith('.farcaster.com')
   ) {
     return 'farcaster';
   }
-  if (window.location.hostname.includes('twitter') || window.location.hostname === 'x.com' || window.location.hostname.endsWith('.x.com')) return 'twitter';
-  if (window.location.hostname.includes('reddit')) return 'reddit';
+  if (host.includes('twitter') || host === 'x.com' || host.endsWith('.x.com')) return 'twitter';
+  if (host.includes('reddit')) return 'reddit';
   return null;
 }
 
@@ -361,6 +367,37 @@ function addReplyButtons(post: Post) {
   }
 }
 
+function makeDraggable(el: HTMLElement) {
+  const dragBar = document.createElement('div');
+  dragBar.style.cssText = 'cursor:grab;padding:4px 0 2px;display:flex;justify-content:center;';
+  const dragHandle = document.createElement('div');
+  dragHandle.style.cssText = 'width:32px;height:3px;background:#444;border-radius:2px;';
+  dragBar.appendChild(dragHandle);
+  el.insertBefore(dragBar, el.firstChild);
+
+  let isDragging = false, offX = 0, offY = 0;
+  dragBar.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    dragBar.style.cursor = 'grabbing';
+    const rect = el.getBoundingClientRect();
+    offX = e.clientX - rect.left;
+    offY = e.clientY - rect.top;
+    el.style.right = 'auto';
+    el.style.bottom = 'auto';
+    el.style.left = rect.left + 'px';
+    el.style.top = rect.top + 'px';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    el.style.left = (e.clientX - offX) + 'px';
+    el.style.top = (e.clientY - offY) + 'px';
+  });
+  document.addEventListener('mouseup', () => {
+    if (isDragging) { isDragging = false; dragBar.style.cursor = 'grab'; }
+  });
+}
+
 function ensureFarcasterFallbackLauncher() {
   if (document.getElementById(FARCASTER_FALLBACK_ID)) {
     return;
@@ -393,6 +430,7 @@ function ensureFarcasterFallbackLauncher() {
   fallback.appendChild(title);
   fallback.appendChild(description);
   fallback.appendChild(actionButton);
+  makeDraggable(fallback);
   document.body.appendChild(fallback);
 }
 
@@ -461,6 +499,7 @@ function renderManualSuggestionPanel(suggestions: ReplySuggestion[]) {
     panel.appendChild(button);
   });
 
+  makeDraggable(panel);
   document.body.appendChild(panel);
 }
 
@@ -836,50 +875,103 @@ async function executeBankrTrade(post: Post, preDetectedTokens?: string[]) {
     tokenSelect.appendChild(opt);
   }
 
-  // Amount input
+  // Bidirectional amount input (ETH ↔ USD)
+  let inputMode: 'eth' | 'usd' = 'eth';
+  let ethPrice = 0;
+
   const amountLabel = document.createElement('label');
-  amountLabel.textContent = 'Amount (ETH)';
   amountLabel.style.cssText = 'display:block;font-size:12px;color:#888;margin-bottom:4px;';
+
+  const amountRow = document.createElement('div');
+  amountRow.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:4px;';
+
   const amountInput = document.createElement('input');
   amountInput.type = 'number';
-  amountInput.step = '0.01';
+  amountInput.step = 'any';
   amountInput.min = '0';
   amountInput.value = '0.1';
   amountInput.placeholder = '0.1';
-  amountInput.style.cssText = 'width:100%;padding:10px;border-radius:8px;border:1px solid #333;background:#16213e;color:#fff;font-size:14px;margin-bottom:4px;box-sizing:border-box;';
+  amountInput.style.cssText = 'flex:1;padding:10px;border-radius:8px;border:1px solid #333;background:#16213e;color:#fff;font-size:14px;box-sizing:border-box;';
 
-  // USD estimate display
+  const toggleBtn = document.createElement('button');
+  toggleBtn.style.cssText = 'padding:10px 14px;border-radius:8px;border:1px solid #333;background:#16213e;color:#a78bfa;font-size:14px;cursor:pointer;white-space:nowrap;font-weight:600;';
+  toggleBtn.textContent = 'ETH';
+  toggleBtn.title = 'Click to switch between ETH and USD';
+
   const usdEstimate = document.createElement('div');
   usdEstimate.style.cssText = 'font-size:12px;color:#888;margin-bottom:16px;';
   usdEstimate.textContent = '≈ $0.00 USD';
 
-  // Fetch ETH price and update estimate
-  let ethPrice = 0;
+  function updateLabelsAndEstimate() {
+    const val = parseFloat(amountInput.value) || 0;
+    if (inputMode === 'eth') {
+      amountLabel.textContent = 'Amount (ETH)';
+      toggleBtn.textContent = 'ETH';
+      usdEstimate.textContent = ethPrice > 0 ? `≈ $${(val * ethPrice).toFixed(2)} USD` : 'fetching price...';
+    } else {
+      amountLabel.textContent = 'Amount (USD)';
+      toggleBtn.textContent = 'USD';
+      usdEstimate.textContent = ethPrice > 0 ? `≈ ${(val / ethPrice).toFixed(6)} ETH` : 'fetching price...';
+    }
+  }
+
+  toggleBtn.onclick = () => {
+    const val = parseFloat(amountInput.value) || 0;
+    if (inputMode === 'eth' && ethPrice > 0) {
+      inputMode = 'usd';
+      amountInput.value = (val * ethPrice).toFixed(2);
+      amountInput.step = '1';
+      amountInput.placeholder = '100';
+    } else if (inputMode === 'usd' && ethPrice > 0) {
+      inputMode = 'eth';
+      amountInput.value = (val / ethPrice).toFixed(6);
+      amountInput.step = 'any';
+      amountInput.placeholder = '0.1';
+    }
+    updateLabelsAndEstimate();
+  };
+
+  // Fetch ETH price
   fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd')
     .then(r => r.json())
     .then(data => {
       ethPrice = data?.ethereum?.usd || 0;
-      const val = parseFloat(amountInput.value) || 0;
-      usdEstimate.textContent = ethPrice > 0 ? `≈ $${(val * ethPrice).toFixed(2)} USD` : '';
+      updateLabelsAndEstimate();
     })
-    .catch(() => { usdEstimate.textContent = ''; });
+    .catch(() => { usdEstimate.textContent = 'price unavailable'; });
 
-  amountInput.addEventListener('input', () => {
+  amountInput.addEventListener('input', updateLabelsAndEstimate);
+
+  amountRow.appendChild(amountInput);
+  amountRow.appendChild(toggleBtn);
+
+  // Helper to get ETH amount regardless of input mode
+  function getEthAmount(): number {
     const val = parseFloat(amountInput.value) || 0;
-    usdEstimate.textContent = ethPrice > 0 ? `≈ $${(val * ethPrice).toFixed(2)} USD` : '';
-  });
+    if (inputMode === 'usd' && ethPrice > 0) return val / ethPrice;
+    return val;
+  }
 
   // Quick amount buttons
   const quickAmounts = document.createElement('div');
   quickAmounts.style.cssText = 'display:flex;gap:8px;margin-bottom:16px;';
-  for (const amt of [0.01, 0.05, 0.1, 0.5]) {
+  for (const preset of [
+    { eth: 0.01, usd: '$5' },
+    { eth: 0.05, usd: '$25' },
+    { eth: 0.1, usd: '$50' },
+    { eth: 0.5, usd: '$250' }
+  ]) {
     const btn = document.createElement('button');
-    btn.textContent = `${amt} ETH`;
     btn.style.cssText = 'flex:1;padding:6px;border-radius:6px;border:1px solid #333;background:#16213e;color:#a78bfa;font-size:12px;cursor:pointer;';
+    btn.textContent = inputMode === 'eth' ? `${preset.eth} ETH` : preset.usd;
     btn.onmouseover = () => { btn.style.background = '#1a1a4e'; };
     btn.onmouseout = () => { btn.style.background = '#16213e'; };
     btn.onclick = () => {
-      amountInput.value = amt.toString();
+      if (inputMode === 'eth') {
+        amountInput.value = preset.eth.toString();
+      } else {
+        amountInput.value = preset.usd.replace('$', '');
+      }
       amountInput.dispatchEvent(new Event('input'));
     };
     quickAmounts.appendChild(btn);
@@ -904,7 +996,7 @@ async function executeBankrTrade(post: Post, preDetectedTokens?: string[]) {
   swapBtn.onmouseover = () => { swapBtn.style.background = '#8b6fd4'; };
   swapBtn.onmouseout = () => { swapBtn.style.background = '#a78bfa'; };
   swapBtn.onclick = async () => {
-    const amount = parseFloat(amountInput.value);
+    const amount = getEthAmount();
     if (!amount || amount <= 0) {
       amountInput.style.borderColor = '#ff4444';
       return;
@@ -920,7 +1012,8 @@ async function executeBankrTrade(post: Post, preDetectedTokens?: string[]) {
     statusArea.style.display = 'block';
     statusArea.style.background = '#16213e';
     statusArea.style.color = '#a78bfa';
-    statusArea.textContent = `Submitting: swap ${amount} ETH → ${selectedToken} via Bankr...`;
+    const displayAmount = amount.toFixed(6);
+    statusArea.textContent = `Submitting: swap ${displayAmount} ETH → ${selectedToken} via Bankr...`;
 
     try {
       // Use Bankr Agent API to submit the trade
@@ -979,7 +1072,7 @@ async function executeBankrTrade(post: Post, preDetectedTokens?: string[]) {
   modal.appendChild(tokenLabel);
   modal.appendChild(tokenSelect);
   modal.appendChild(amountLabel);
-  modal.appendChild(amountInput);
+  modal.appendChild(amountRow);
   modal.appendChild(usdEstimate);
   modal.appendChild(quickAmounts);
   modal.appendChild(statusArea);
