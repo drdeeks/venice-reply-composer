@@ -39,6 +39,7 @@ describe('Storage Module', () => {
         bankrEnabled: true,
         bankrApiKey: '',
         githubToken: '',
+        responseTypes: { agreeReply: true, againstReply: true, forQuote: false, againstQuote: false },
       });
     });
 
@@ -161,6 +162,7 @@ describe('Storage Module', () => {
         bankrEnabled: true,
         bankrApiKey: '',
         githubToken: '',
+        responseTypes: { agreeReply: true, againstReply: true, forQuote: false, againstQuote: false },
       });
     });
 
