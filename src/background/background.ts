@@ -20,4 +20,23 @@ chrome.runtime.onMessage.addListener((request: any, _sender: chrome.runtime.Mess
     saveSettings(request.settings).then(() => sendResponse({ success: true }), _error => sendResponse(null));
     return true;
   }
+
+  // Relay wallet requests from popup → active tab content script (where window.ethereum exists)
+  if (request.action === 'WALLET_REQUEST') {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tabId = tabs[0]?.id;
+      if (!tabId) {
+        sendResponse({ error: 'No active tab found' });
+        return;
+      }
+      chrome.tabs.sendMessage(tabId, request, (response) => {
+        if (chrome.runtime.lastError) {
+          sendResponse({ error: 'Content script not ready. Open a supported page first.' });
+        } else {
+          sendResponse(response);
+        }
+      });
+    });
+    return true;
+  }
 });

@@ -1259,3 +1259,25 @@ function showTransientNotice(message: string) {
   extractPosts,
   addReplyButtons
 };
+
+// ── Wallet bridge: relay wallet requests from popup through content script ──
+// The popup lives in an isolated context where window.ethereum is NOT available.
+// We listen for wallet requests here (in page context where MetaMask injects) and relay back.
+chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  if (request.action !== 'WALLET_REQUEST') return false;
+
+  const ethereum = (window as unknown as Record<string, unknown>).ethereum as {
+    request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+  } | undefined;
+
+  if (!ethereum) {
+    sendResponse({ error: 'No wallet detected. Install MetaMask or Coinbase Wallet.' });
+    return true;
+  }
+
+  ethereum.request({ method: request.method, params: request.params })
+    .then(result => sendResponse({ result }))
+    .catch(err => sendResponse({ error: err?.message || 'Request rejected' }));
+
+  return true; // keep channel open for async
+});

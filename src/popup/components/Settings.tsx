@@ -64,26 +64,28 @@ export default function Settings() {
     }
   }
 
-  async function fetchBalance(address: string) {
-    if (!window.ethereum) return;
-    
-    try {
-      // Switch to Base chain if needed
-      const chainId = await window.ethereum.request({ method: 'eth_chainId' }) as string;
-      if (chainId !== BASE_CHAIN_ID_HEX) {
-        await window.ethereum.request({
-          method: 'wallet_switchEthereumChain',
-          params: [{ chainId: BASE_CHAIN_ID_HEX }]
-        });
-      }
+  // Popup has no window.ethereum — relay through background → content script bridge
+  async function walletRequest(method: string, params?: unknown[]): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        { action: 'WALLET_REQUEST', method, params },
+        (response) => {
+          if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
+          if (response?.error) return reject(new Error(response.error));
+          resolve(response?.result);
+        }
+      );
+    });
+  }
 
-      const balanceHex = await window.ethereum.request({
-        method: 'eth_getBalance',
-        params: [address, 'latest']
-      }) as string;
-      
-      const balanceWei = BigInt(balanceHex);
-      const balanceEth = Number(balanceWei) / 1e18;
+  async function fetchBalance(address: string) {
+    try {
+      const chainId = await walletRequest('eth_chainId') as string;
+      if (chainId !== BASE_CHAIN_ID_HEX) {
+        await walletRequest('wallet_switchEthereumChain', [{ chainId: BASE_CHAIN_ID_HEX }]);
+      }
+      const balanceHex = await walletRequest('eth_getBalance', [address, 'latest']) as string;
+      const balanceEth = Number(BigInt(balanceHex)) / 1e18;
       setEthBalance(balanceEth.toFixed(4));
     } catch (err) {
       console.error('Failed to fetch balance:', err);
@@ -92,19 +94,12 @@ export default function Settings() {
   }
 
   async function connectWallet() {
-    if (!window.ethereum) {
-      setStatus('MetaMask not detected');
-      return;
-    }
-
     try {
       setWalletLoading(true);
       setStatus('');
 
-      // Request accounts
-      const accounts = await window.ethereum.request({
-        method: 'eth_requestAccounts'
-      }) as string[];
+      // Request accounts via content script bridge (popup has no window.ethereum)
+      const accounts = await walletRequest('eth_requestAccounts') as string[];
 
       if (accounts && accounts.length > 0) {
         const address = accounts[0];
@@ -327,7 +322,7 @@ export default function Settings() {
 
       <div className="setting-section">
         <h3>Wallet</h3>
-        {!window.ethereum ? (
+        {false ? (
           <div style={{ padding: '10px', background: '#fff3cd', borderRadius: '8px', marginBottom: '12px' }}>
             <p style={{ margin: 0, fontSize: '13px', color: '#856404' }}>
               No wallet provider detected.{' '}
