@@ -631,30 +631,40 @@ function getProviderChain(settings: Settings): AIProvider[] {
 }
 
 async function callAIProvider(provider: AIProvider, content: string): Promise<string> {
-  const response = await fetch(provider.url, {
+  const requestBody = JSON.stringify({
+    model: provider.model,
+    messages: [
+      {
+        role: 'system',
+        content: 'You generate concise, high-quality social replies. Return 5 unique replies, each under 280 characters.'
+      },
+      { role: 'user', content }
+    ],
+    max_tokens: 700,
+    temperature: 0.7
+  });
+
+  // Route through background service worker to bypass page CSP (e.g. X.com, Twitter)
+  const bgResponse = await chrome.runtime.sendMessage({
+    action: 'FETCH_AI',
+    url: provider.url,
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...provider.authHeader(provider.key)
     },
-    body: JSON.stringify({
-      model: provider.model,
-      messages: [
-        {
-          role: 'system',
-          content: 'You generate concise, high-quality social replies. Return 5 unique replies, each under 280 characters.'
-        },
-        { role: 'user', content }
-      ],
-      max_tokens: 700,
-      temperature: 0.7
-    })
+    body: requestBody
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`${provider.name} API error ${response.status}: ${errorText}`);
+  if (!bgResponse || bgResponse.error) {
+    throw new Error(bgResponse?.error || 'Background fetch failed');
   }
+
+  if (!bgResponse.ok) {
+    throw new Error(`${provider.name} API error ${bgResponse.status}: ${bgResponse.body?.slice(0, 200)}`);
+  }
+
+  const response = { ok: bgResponse.ok, status: bgResponse.status, json: async () => JSON.parse(bgResponse.body) };
 
   const data = await response.json();
   const rawContent = data?.choices?.[0]?.message?.content;

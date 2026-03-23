@@ -21,6 +21,21 @@ chrome.runtime.onMessage.addListener((request: any, _sender: chrome.runtime.Mess
     return true;
   }
 
+  // Proxy AI fetch calls from content script (bypasses page CSP restrictions)
+  // Content scripts can't fetch external APIs on sites with strict CSP (e.g. X.com, Twitter)
+  if (request.action === 'FETCH_AI') {
+    const { url, method, headers, body } = request;
+    fetch(url, { method: method || 'POST', headers, body })
+      .then(async (res) => {
+        const text = await res.text();
+        sendResponse({ ok: res.ok, status: res.status, body: text });
+      })
+      .catch((err) => {
+        sendResponse({ ok: false, status: 0, error: err.message });
+      });
+    return true; // async
+  }
+
   // Relay wallet requests from popup → active tab content script (where window.ethereum exists)
   if (request.action === 'WALLET_REQUEST') {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
