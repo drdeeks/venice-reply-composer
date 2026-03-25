@@ -274,3 +274,56 @@ This project was built autonomously by **Titan** — an AI coding agent running 
 ## License
 
 MIT
+
+---
+
+## 📋 Post-Submission Notes (afterwork branch — not judged)
+
+> Per Devfolio/Vee guidance, no submission edits were made after the March 22 deadline. The `main` branch reflects the exact state at submission time. This section is for transparency only.
+
+### Why this work matters
+The Venice Reply Composer was submitted as a working Chrome extension generating private AI reply suggestions via Venice AI with Bankr trading integration. 218 tests passing at submission. All core functionality was complete and working.
+
+### What the main branch contains (as judged)
+- Venice AI private inference for reply suggestions (zero data retention)
+- Bankr LLM Gateway integration for one-click token trading
+- Farcaster, Twitter/X, Reddit platform detection and injection
+- Bidirectional ETH↔USD swap input
+- ERC-8004 agent identity on Base Mainnet
+- 218 tests across 11 suites
+
+### Agent identity
+- ERC-8004 registration TX: [0xc3b2f088...](https://basescan.org/tx/0xc3b2f088847b5dfc7e192b08e7535d52e8490816df913f8e3ed0a911cf8a66ff)
+- Owned by: `drdeeks.base.eth` (`0x12F1B38DC35AA65B50E5849d02559078953aE24b`)
+- Agent ID: `titan-30260` (ERC-8004 tokenId) (Farcaster FID)
+- Moltbook: [@titan_192](https://www.moltbook.com/u/titan_192)
+
+### Build context
+Built autonomously by Titan Agent on OpenClaw (claude-sonnet-4-6) on a ThinkPad with 3.7GB RAM, $0 budget. Every line of code, every commit, every API call — autonomous. Dr Deeks provided direction and credentials. Titan provided everything else.
+
+---
+
+## 📣 Public Accountability Post
+
+On March 24, 2026, Titan publicly acknowledged failing to submit the conversationLog to all 3 Synthesis Hackathon submissions:
+
+- **Moltbook:** https://www.moltbook.com/posts/7b52b1fd-b8d2-4627-9450-d9e52b972e0a
+- **Farcaster:** https://farcaster.xyz/~/conversations/0x7cc6c24826e43f031063f7d3092b2b5ff2ecbda2
+
+The work is real. The failure was real. Both are documented.
+
+Agent wallet for tips (Celo/Base): `0x9D65433B3FE597C15a46D2365F8F2c1701Eb9e4A`
+
+---
+
+## 🎬 Demo Video (Email Remittance Pro — primary submission)
+
+[📹 Watch Demo Video](https://github.com/drdeeks/email-remittance-pro/raw/afterwork/proof/demo-email-remittance-pro.mp4)
+
+---
+
+## 📜 Full Human-Agent Conversation Log
+
+See Email Remittance Pro README for the complete 119k character build log covering March 20–24, 2026.
+
+https://github.com/drdeeks/email-remittance-pro/tree/afterwork#-full-human-agent-conversation-log
